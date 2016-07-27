@@ -28,7 +28,8 @@
  * @version 1.0.1
  */
 (function(document, undefined) {
-
+    var rootNodeLineArr = [];
+    var startLineArr = [];
     var MAX_PIXEL_NODE_CONTENT = 5,
         NODE_QUANTITY_THRESHOLD = 0.3,
         Colors = ["#DCDCDC", "#FFE4C4", "#FFDAB9", "#FFF8DC", "#E6E6FA", "#FFE4E1", "#708090", "#191970",
@@ -294,20 +295,19 @@
             else {
                 if (nodeCounter < Colors.length) this.color = Colors[nodeCounter];
                 else this.color = Colors[nodeCounter % Colors.length];
-                nodeCounter++;
+                ++nodeCounter;
             }
             this.nodeCounter = nodeCounter++;
             this.parentNodes = /*Array.<GenerationNode>*/ [];
             this.startContents = /*Array.<Uint32Array>*/ [];
             this.childNodes = /*Array.<GenerationNode>*/ [];
-            this.endContents = /*Array.<Uint32Array>*/ [];
-            this.rootNodeLine = /*Array.<Uint32Array>*/ [];
             this.lastContent = /*Uint32Array*/ [];
             this.lContent = /*Array.<Number>*/ [];
             this.rContent = /*Array.<Number>*/ [];
             if(node == null) {
                 this.isRoot = true;
                 this.rootNodeLine = content;
+                this.charge = null;
                 //TODO
                 for(let i = 0; i < content.length; ++i) {
                     //drawPoint(gCtx, content[i], "#000000");
@@ -316,10 +316,12 @@
             else {
                 this.isRoot = false;
                 this.parentNodes.push(node);
+                this.charge = node.charge;
                 this.startContents.push(content);
                 this.rContent.pushAll(rPoint);
                 this.lContent.pushAll(lPoint);
                 for(let i = 0; i < this.lContent.length; ++i) {
+                    //TODO
                     drawPoint(gCtx, this.lContent[i], color);
                 }
             }
@@ -330,10 +332,7 @@
         var nodeCounter = 0;
         GenerationNode.prototype = {
             constructor: /*GenerationNode*/ GenerationNode,
-            addChildNode: function (/*GenerationNode*/ node, /*Uint32Array*/ endContent) {
-                this.childNodes.push(node);
-                this.endContents.push(endContent);
-            },
+
             addContent: function (/*Uint32Array*/ content, /*Array*/ rContent, /*Array*/ lContent) {
                 //this.content.push(content);
                 this.lastContent=content;
@@ -345,6 +344,7 @@
                 else color = Colors[this.nodeCounter % Colors.length];
 
                 for(let i = 0; i < lContent.length; ++i) {
+                    //TODO
                     drawPoint(gCtx, lContent[i], color);
                 }
             },
@@ -360,6 +360,10 @@
             },
             getLastContent: function () {
                 return this.lastContent;
+            },
+
+            setCharge: function(/*Boolean*/ charge) {
+                this.charge = charge;
             }
         };
 
@@ -556,13 +560,14 @@
                 let rootNodeLine = null;
                 let arrayOfNextGenerationTupleOfRootNodeLine;
                 for(let i = 0; i < arrayOfNextGenerationTuple.length; ++i) {
+                    let testLine = arrayOfNextGenerationTuple[i].nextGeneration;
                     arrayOfNextGenerationTupleOfRootNodeLine =
-                        searchNextGenerationNeighbors(arrayOfNextGenerationTuple[i].nextGeneration, null);
-                    clearMarkedContent(arrayOfNextGenerationTuple[i].nextGeneration);
+                        searchNextGenerationNeighbors(testLine, null);
                     if(arrayOfNextGenerationTupleOfRootNodeLine!=null && arrayOfNextGenerationTupleOfRootNodeLine.length > 1) {
-                        rootNodeLine = arrayOfNextGenerationTuple[i].nextGeneration;
+                        rootNodeLine = testLine;
                         break;
                     }
+                    clearMarkedContent(testLine);
                 }
                 // create root node
                 let /*GenerationNode*/ rootNode;
@@ -605,14 +610,53 @@
                 endNodeArr.push(newNode);
             }
 
+
+
             function processFreeEndTupleStack() {
 
                 var /*FreeEndTuple*/ freeEndTuple = freeEndTupleStack.pop();
                 // stack empty
                 if (freeEndTuple == undefined) return;
+                var parentNode = freeEndTuple.node,
+                    rootNodeLine = parentNode.rootNodeLine,
+                    startLine = freeEndTuple.firstElementOfNodeContent;
+                        //freeEndContent;
+                // try to define charge of node
+                if(parentNode.isRoot) {
+                    //rootNodeLine and startLine
+                    let /*Map.<Number, Array.<Number>>*/ connectionsMap = createConnectionsMap(rootNodeLine, startLine);
+                    let charge = null;
+                    rootNodeLine.forEach(function(item, index){
+                        let neighbors = connectionsMap.get(index);
 
-                var newNode = new GenerationNode(   freeEndTuple.node,
-                                                    freeEndTuple.freeEndContent,
+                        if(neighbors !== undefined && neighbors.length > 1) {
+                            neighbors.sort(ordinarySort);
+                            // check order of array with the help of pseudoscalar multiplication
+                            let v1 = getVector(rootNodeLine[index], startLine[neighbors[0]]);
+                            let v2 = getVector(startLine[neighbors[0]], startLine[neighbors[1]]);
+                            let sign = isPseudoScalarPositive(v1, v2);
+                            if(charge === null) charge = sign;
+                            else if(charge != sign) {
+                                rootNodeLineArr.push(rootNodeLine);
+                                startLineArr.push(startLine);
+                                console.log("ERROR");
+                                console.log(rootNodeLine);
+                                console.log(startLine);
+                            }
+                        }
+                    });
+                    if(charge === null) {
+                        console.log("Can't calculate charge");
+                    }
+                    else {
+                        parentNode.setCharge(charge);
+                    }
+
+
+                }
+
+                var newNode = new GenerationNode(   parentNode,
+                                                    startLine,
                                                     freeEndTuple.rPoint,
                                                     freeEndTuple.lPoint);
 
@@ -845,11 +889,8 @@
 
                 var /*Array.<Number>*/ queue = [],
                 /*Number*/ queueHead = 0;
-                //поставим вершину в очередь
-                queue.push(vertexNumber);
-
+                 queue.push(vertexNumber);
                 used[vertexNumber] = 1;
-                //пока очередь не заполнена
                 while (queueHead < queue.length) {
                     vertexNumber = queue[queueHead++];
                     let neighbors = neighborsMap[vertexNumber];
@@ -991,10 +1032,10 @@
                     var maxOfMinArray = minArray.max();
                     var minOfMaxArray = maxArray.min();
                     var maxOfMaxArray = maxArray.max();
-                    if(maxOfMaxArray > maxOfMinArray) return true;
-                    if(minOfMaxArray < minOfMinArray) return false;
-                    if(minOfMinArray < minOfMaxArray) return true;
-                    if(maxOfMaxArray < maxOfMinArray) return false;
+                    if(maxOfMaxArray > maxOfMinArray ||
+                        minOfMinArray < minOfMaxArray) return true;
+                    if(minOfMaxArray < minOfMinArray ||
+                        maxOfMaxArray < maxOfMinArray) return false;
                     return null;
                 }
                 var result = [];
@@ -1025,13 +1066,17 @@
                             }
                         }
                         let sign = compareArray(minArray, maxArray);
-                        if(sign === null) {
+                        if(sign === null && node !== null) {
                             // maybe previous array length equals 1
                             if(prevConnectedArrayOfPointKey.length == 1){
                                 // check order of array with the help of pseudoscalar multiplication
                                 let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[minArray[0]]);
-                                let v2 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[minArray[1]]);
-                                sign = !isPseudoScalarPositive(v1, v2);
+                                let v2 = getVector(orderedNext[minArray[0]], orderedNext[minArray[1]]);
+                                sign = isPseudoScalarPositive(v1, v2);
+                                if(node.charge === null) {
+                                    node.setCharge(sign);
+                                }
+                                sign = node.charge == sign;
 
                             }
                             else if(prevConnectedArrayOfPointKey.length == 2 && orderedNext.length == 2) {
@@ -1182,6 +1227,16 @@
             //drawSimplifiedNode(gCtx, color, simplifiedNode);
             ++colorIdx;
         }
+        rootNodeLineArr.forEach(function(item) {
+            item.forEach(function(point) {
+                drawPoint(gCtx, point, "#000000")
+            });
+        });
+        startLineArr.forEach(function(item) {
+            item.forEach(function(point) {
+                drawPoint(gCtx, point, "#FF0000")
+            });
+        });
     }
 })(document);
 
