@@ -227,67 +227,6 @@
             this.lPoint = lPoint;
         }
 
-        function SimplifiedNode(/*GenerationNode*/ genNode) {
-            this.isRoot = /*Boolean*/ genNode.isRoot;
-            this.generationNode = genNode;
-
-            if (genNode.isRoot) {
-                this.mainPoint = getAverageContent(genNode.content[0]);
-            }
-            else {
-                this.content = /*Array.<Number>*/ [];
-                if (genNode.parentNodes.length == 1 && genNode.parentNodes[0].isRoot) {
-                    this.mainPoint = getAverageContent(genNode.parentNodes[0].content[0]);
-                    this.content.push(this.mainPoint);
-                }
-                else {
-                    let pointSet = new Set();
-
-                    for (let i = 0; i < genNode.parentNodes.length; ++i) {
-                        let parentNode = genNode.parentNodes[0];
-                        let parentContent = parentNode.content;
-                        pointSet.add(getAverageContent(parentContent[parentContent.length - 1]));
-
-                         for(let k = 0; k < parentNode.childNodes.length; ++k) {
-                         let childContent = parentNode.childNodes[k].content;
-                         pointSet.add(getAverageContent(childContent[0]));
-                         }
-                    }
-                    this.mainPoint = getAverageContent(Array.from(pointSet));
-                    this.content.push(this.mainPoint);
-                }
-
-                for (let i = 0; i < genNode.content.length; ++i) {
-                    this.content.push(getAverageContent(genNode.content[i]));
-                }
-
-                if (genNode.childNodes.length == 1 && genNode.childNodes[0].isRoot) {
-                    this.endPoint = getAverageContent(genNode.childNodes[0].content[0]);
-                }
-                else {
-                    if (genNode.childNodes.length > 0) {
-                        let pointSet = new Set();
-
-                        for (let i = 0; i < genNode.childNodes.length; ++i) {
-                            let childNode = genNode.childNodes[i];
-                            let childContent = childNode.content;
-                            pointSet.add(getAverageContent(childContent[0]));
-
-                            for (let k = 0; k < childNode.parentNodes.length; ++k) {
-                                let parentContent = childNode.parentNodes[k].content;
-                                pointSet.add(getAverageContent(parentContent[parentContent.length - 1]));
-                            }
-                        }
-                        this.endPoint = getAverageContent(Array.from(pointSet));
-                        this.content.push(this.endPoint);
-                    }
-                }
-                this.content = simplify(this.content, 0, false);
-            }
-
-            allSimplifiedNodes.add(this);
-        }
-
         function GenerationNode(/*GenerationNode*/ node, /*Uint32Array*/ content, /*Array*/ rPoint, /*Array*/ lPoint, color) {
             if(color) {
                 this.color = color;
@@ -308,6 +247,7 @@
                 this.isRoot = true;
                 this.rootNodeLine = content;
                 this.charge = null;
+                this.nullChargeNodeList = [];
                 //TODO
                 for(let i = 0; i < content.length; ++i) {
                     //drawPoint(gCtx, content[i], "#000000");
@@ -363,7 +303,10 @@
             },
 
             setCharge: function(/*Boolean*/ charge) {
+
+                if(this.charge !== null) console.log("Previous charge "+this.charge);//throw "Attempt to change charge";
                 this.charge = charge;
+
             }
         };
 
@@ -529,7 +472,9 @@
             return pointKeyArr;
         }
 
+
         function createAllNodeTree() {
+
             function clearMarkedContent(arrayOfPointKey) {
                 arrayOfPointKey.forEach(function(item) {
                     pointMapUsed.set(item, false);
@@ -646,19 +591,20 @@
                         }
                     });
                     if(charge === null) {
-                        console.log("Can't calculate charge");
+                        //nullChargeNodeList.push(parentNode);
                     }
                     else {
                         parentNode.setCharge(charge);
                     }
-
-
                 }
 
                 var newNode = new GenerationNode(   parentNode,
                                                     startLine,
                                                     freeEndTuple.rPoint,
                                                     freeEndTuple.lPoint);
+                if(newNode.charge === null) {
+                    getRootNode(newNode).nullChargeNodeList.push(newNode);
+                }
 
                 freeEndTuple.firstElementOfNodeContent.forEach(function(pointKey){
                     freeEndTupleMap.delete(pointKey);
@@ -867,6 +813,114 @@
             return neighborsMap;
         }
 
+        function checkArraysOrder(/*Uint32Array*/ prev, /*Array.<Uint32Array>*/ arrayOfNextArrays, /*GenerationNode*/ node) {
+            function compareArray(minArray, maxArray) {
+                var minOfMinArray = minArray.min();
+                var maxOfMinArray = minArray.max();
+                var minOfMaxArray = maxArray.min();
+                var maxOfMaxArray = maxArray.max();
+                if(maxOfMaxArray > maxOfMinArray ||
+                    minOfMinArray < minOfMaxArray) return true;
+                if(minOfMaxArray < minOfMinArray ||
+                    maxOfMaxArray < maxOfMinArray) return false;
+                return null;
+            }
+            var result = [];
+            var lastPrevIndex = 0;
+            arrayOfNextArrays.forEach(function(orderedNext, index) {
+                // Map: index of prev -> indexes of next, which connected to prev elements
+                let connectionsMap = createConnectionsMap(prev, orderedNext),
+                    prevConnectedArrayOfNumber = Array.from(connectionsMap.keys());
+                //TODO remove
+                if(prevConnectedArrayOfNumber.length == 0) {
+                    console.log("unknown error");
+                    return;
+                }
+
+                let prevConnectedArrayOfPointKey = getArrayFromVocabulary(prevConnectedArrayOfNumber, prev);
+
+                if (orderedNext.length > 1) {
+                    let minArray = null;
+                    let maxArray = null;
+                    for (let i = 0; i < prevConnectedArrayOfNumber.length; ++i) {
+                        let prevIndex = prevConnectedArrayOfNumber[i];
+                        let nextPointIndexes = connectionsMap.get(prevIndex);
+
+                        if (nextPointIndexes.length > 0) {
+                            nextPointIndexes.sort(ordinarySort);
+                            if(minArray === null) minArray = nextPointIndexes;
+                            maxArray = nextPointIndexes;
+                        }
+                    }
+                    let sign = compareArray(minArray, maxArray);
+                    if(sign === null && node !== null) {
+                        // maybe previous array length equals 1
+                        if(prevConnectedArrayOfPointKey.length == 1){
+                            // check order of array with the help of pseudoscalar multiplication
+                            let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[minArray[0]]);
+                            let v2 = getVector(orderedNext[minArray[0]], orderedNext[minArray[1]]);
+                            sign = isPseudoScalarPositive(v1, v2);
+                            if(node.charge === null) {
+                                node.setCharge(sign);
+                                getRootNode(node).nullChargeNodeList.forEach(function(item) {
+                                    item.setCharge(sign);
+                                });
+                                getRootNode(node).nullChargeNodeList = [];
+                            }
+                            sign = node.charge == sign;
+
+                        }
+                        else if(prevConnectedArrayOfPointKey.length == 2 && orderedNext.length == 2) {
+                            let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[0]);
+                            sign = v1.x == 0 || v1.y == 0;
+                        }
+                        else {
+                            console.log("Unexpected error");
+                        }
+                    }
+                    if (sign === false) {
+                        orderedNext.reverse();
+                    }
+                }
+
+                let rPointArray = [];
+                let lPointArray = [];
+
+                // push in rPoint all elements of prev, which not connected to elements of next
+                for(let k = lastPrevIndex+1; k <= prevConnectedArrayOfNumber[0]; ++k) {
+                    rPointArray.push(prev[k]);
+                }
+                //  push in rPoint start point of next array
+                rPointArray.push(orderedNext[0]);
+
+                // If the last index of array next is less than the last index of the array prev
+                if(prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1] < prev.length - 1) {
+                    // if current split element is last
+                    if(index == arrayOfNextArrays.length - 1) {
+
+                        // push in lPoint all previous point from prev array, which not connected to elemets of next
+                        for(let k = prev.length - 2; k >= prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1]; --k ) {
+                            lPointArray.push(prev[k]);
+                        }
+                    }
+                    else {
+                        lPointArray.push(prev[prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1]]);
+                    }
+                }
+                lPointArray.push(orderedNext[orderedNext.length-1]);
+                lastPrevIndex = prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1];
+                let /*NextGenerationTuple*/ resultElm =
+                    new NextGenerationTuple(
+                        orderedNext,
+                        prevConnectedArrayOfPointKey,
+                        rPointArray,
+                        lPointArray);
+                result.push(resultElm);
+            });
+
+            return result;
+        }
+
         function searchNextGenerationNeighbors(/*Uint32Array*/ content, /*GenerationNode*/ node) {
 
             function getNextGenerationArray(content) {
@@ -1026,110 +1080,6 @@
                 return arrayOfOrderedArrayOfPointKey;
             }
 
-            function checkArraysOrder(/*Uint32Array*/ prev, /*Array.<Uint32Array>*/ arrayOfNextArrays) {
-                function compareArray(minArray, maxArray) {
-                    var minOfMinArray = minArray.min();
-                    var maxOfMinArray = minArray.max();
-                    var minOfMaxArray = maxArray.min();
-                    var maxOfMaxArray = maxArray.max();
-                    if(maxOfMaxArray > maxOfMinArray ||
-                        minOfMinArray < minOfMaxArray) return true;
-                    if(minOfMaxArray < minOfMinArray ||
-                        maxOfMaxArray < maxOfMinArray) return false;
-                    return null;
-                }
-                var result = [];
-                var lastPrevIndex = 0;
-                arrayOfNextArrays.forEach(function(orderedNext, index) {
-                    // Map: index of prev -> indexes of next, which connected to prev elements
-                    let connectionsMap = createConnectionsMap(prev, orderedNext),
-                        prevConnectedArrayOfNumber = Array.from(connectionsMap.keys());
-                    //TODO remove
-                    if(prevConnectedArrayOfNumber.length == 0) {
-                        console.log("unknown error");
-                        return;
-                    }
-
-                    let prevConnectedArrayOfPointKey = getArrayFromVocabulary(prevConnectedArrayOfNumber, prev);
-
-                    if (orderedNext.length > 1) {
-                        let minArray = null;
-                        let maxArray = null;
-                        for (let i = 0; i < prevConnectedArrayOfNumber.length; ++i) {
-                            let prevIndex = prevConnectedArrayOfNumber[i];
-                            let nextPointIndexes = connectionsMap.get(prevIndex);
-
-                            if (nextPointIndexes.length > 0) {
-                                nextPointIndexes.sort(ordinarySort);
-                                if(minArray === null) minArray = nextPointIndexes;
-                                maxArray = nextPointIndexes;
-                            }
-                        }
-                        let sign = compareArray(minArray, maxArray);
-                        if(sign === null && node !== null) {
-                            // maybe previous array length equals 1
-                            if(prevConnectedArrayOfPointKey.length == 1){
-                                // check order of array with the help of pseudoscalar multiplication
-                                let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[minArray[0]]);
-                                let v2 = getVector(orderedNext[minArray[0]], orderedNext[minArray[1]]);
-                                sign = isPseudoScalarPositive(v1, v2);
-                                if(node.charge === null) {
-                                    node.setCharge(sign);
-                                }
-                                sign = node.charge == sign;
-
-                            }
-                            else if(prevConnectedArrayOfPointKey.length == 2 && orderedNext.length == 2) {
-                                let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[0]);
-                                sign = v1.x == 0 || v1.y == 0;
-                            }
-                            else {
-                                console.log("Unexpected error");
-                            }
-                        }
-                        if (sign === false) {
-                            orderedNext.reverse();
-                        }
-                    }
-
-                    let rPointArray = [];
-                    let lPointArray = [];
-
-                    // push in rPoint all elements of prev, which not connected to elements of next
-                    for(let k = lastPrevIndex+1; k <= prevConnectedArrayOfNumber[0]; ++k) {
-                        rPointArray.push(prev[k]);
-                    }
-                    //  push in rPoint start point of next array
-                    rPointArray.push(orderedNext[0]);
-
-                    // If the last index of array next is less than the last index of the array prev
-                    if(prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1] < prev.length - 1) {
-                        // if current split element is last
-                        if(index == arrayOfNextArrays.length - 1) {
-
-                            // push in lPoint all previous point from prev array, which not connected to elemets of next
-                            for(let k = prev.length - 2; k >= prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1]; --k ) {
-                                lPointArray.push(prev[k]);
-                            }
-                        }
-                        else {
-                            lPointArray.push(prev[prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1]]);
-                        }
-                    }
-                    lPointArray.push(orderedNext[orderedNext.length-1]);
-                    lastPrevIndex = prevConnectedArrayOfNumber[prevConnectedArrayOfNumber.length - 1];
-                    let /*NextGenerationTuple*/ resultElm =
-                        new NextGenerationTuple(
-                            orderedNext,
-                            prevConnectedArrayOfPointKey,
-                            rPointArray,
-                            lPointArray);
-                    result.push(resultElm);
-                });
-
-                return result;
-            }
-
             var /*Uint32Array*/ nextGenArrayOfPointKey = getNextGenerationArray(content);
             // nextGeneration have not any point, the end
             if (nextGenArrayOfPointKey.length == 0) return null;
@@ -1137,7 +1087,7 @@
             var /*Array.<Uint32Array>*/ arrayOfOrderedNextGenArrayOfPointKey =
                     getOrderedArrayOfArraysOfPointKey(nextGenArrayOfPointKey);
 
-            return checkArraysOrder(content, arrayOfOrderedNextGenArrayOfPointKey);
+            return checkArraysOrder(content, arrayOfOrderedNextGenArrayOfPointKey, node);
 
         }
 
