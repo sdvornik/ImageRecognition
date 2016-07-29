@@ -1101,6 +1101,17 @@
             ctx.fillRect(lastX, lastY,1,1);
         }
 
+        function drawLine(ctx, key1, key2, color) {
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            var startX = getX(key1), startY = getY(key1);
+            ctx.moveTo(startX, startY);
+            var endX = getX(key2), endY = getY(key2);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+
         createPointMap(imgData);
         createAllNodeTree();
         pointMap.size = 0;
@@ -1112,17 +1123,18 @@
             var color;
             if (nodeCounter < Colors.length) color = Colors[nodeCounter];
             else color = Colors[nodeCounter % Colors.length];
-
+            let simplifyContent;
             if(node.charge === true || node.charge ===null) {
-                for(let i = 0; i < node.rContent.length; ++i) {
-                    drawPoint(gCtx, node.rContent[i], color);
-                }
+                simplifyContent = simplify(node.rContent, 2, true);
             }
             else if(node.charge === false) {
-                for(let i = 0; i < node.lContent.length; ++i) {
-                    drawPoint(gCtx, node.lContent[i], color);
-                }
+                simplifyContent = simplify(node.lContent, 0, true);
             }
+            for(let i = 0; i < simplifyContent.length - 1; ++i) {
+                //drawPoint(gCtx, simplifyContent[i], color);
+                drawLine(gCtx, simplifyContent[i], simplifyContent[i+1], color);
+            }
+
         });
     }
 })(document);
