@@ -203,7 +203,6 @@
 
         //TODO
         var /*Set.<GenerationNode>*/ allCreatedNodes = new Set();
-        var /*Set.<SimplifiedNode>*/ allSimplifiedNodes = new Set();
 
         function NextGenerationTuple(/*Uint32Array*/ fst,
                                      /*Uint32Array*/ snd,
@@ -227,16 +226,7 @@
             this.lPoint = lPoint;
         }
 
-        function GenerationNode(/*GenerationNode*/ node, /*Uint32Array*/ content, /*Array*/ rPoint, /*Array*/ lPoint, color) {
-            if(color) {
-                this.color = color;
-            }
-            else {
-                if (nodeCounter < Colors.length) this.color = Colors[nodeCounter];
-                else this.color = Colors[nodeCounter % Colors.length];
-                ++nodeCounter;
-            }
-            this.nodeCounter = nodeCounter++;
+        function GenerationNode(/*GenerationNode*/ node, /*Uint32Array*/ content, /*Array*/ rPoint, /*Array*/ lPoint) {
             this.parentNodes = /*Array.<GenerationNode>*/ [];
             this.startContents = /*Array.<Uint32Array>*/ [];
             this.childNodes = /*Array.<GenerationNode>*/ [];
@@ -248,10 +238,6 @@
                 this.rootNodeLine = content;
                 this.charge = null;
                 this.nullChargeNodeList = [];
-                //TODO
-                for(let i = 0; i < content.length; ++i) {
-                    //drawPoint(gCtx, content[i], "#000000");
-                }
             }
             else {
                 this.isRoot = false;
@@ -260,10 +246,6 @@
                 this.startContents.push(content);
                 this.rContent.pushAll(rPoint);
                 this.lContent.pushAll(lPoint);
-                for(let i = 0; i < this.lContent.length; ++i) {
-                    //TODO
-                    drawPoint(gCtx, this.lContent[i], color);
-                }
             }
 
 
@@ -274,37 +256,23 @@
             constructor: /*GenerationNode*/ GenerationNode,
 
             addContent: function (/*Uint32Array*/ content, /*Array*/ rContent, /*Array*/ lContent) {
-                //this.content.push(content);
                 this.lastContent=content;
                 this.rContent.pushAll(rContent);
                 this.lContent.pushAll(lContent);
-                //TODO
-                var color;
-                if (this.nodeCounter < Colors.length) color = Colors[this.nodeCounter];
-                else color = Colors[this.nodeCounter % Colors.length];
-
-                for(let i = 0; i < lContent.length; ++i) {
-                    //TODO
-                    drawPoint(gCtx, lContent[i], color);
-                }
             },
             addParent: function (/*GenerationNode*/ node, /*Uint32Array*/ startContent) {
                 this.parentNodes.push(node);
                 this.startContents.push(startContent);
-                //TODO
-                var color;
-                if (nodeCounter < Colors.length) color = Colors[nodeCounter];
-                else color = Colors[nodeCounter % Colors.length];
-                //drawPoint(gCtx, startContent[startContent.length - 1], color);
-
             },
             getLastContent: function () {
                 return this.lastContent;
             },
 
             setCharge: function(/*Boolean*/ charge) {
+                if(this.charge !== null) {
+                    console.log("Previous charge "+(this.charge===charge));
+                }//throw "Attempt to change charge";
 
-                if(this.charge !== null) console.log("Previous charge "+this.charge);//throw "Attempt to change charge";
                 this.charge = charge;
 
             }
@@ -472,7 +440,6 @@
             return pointKeyArr;
         }
 
-
         function createAllNodeTree() {
 
             function clearMarkedContent(arrayOfPointKey) {
@@ -555,8 +522,6 @@
                 endNodeArr.push(newNode);
             }
 
-
-
             function processFreeEndTupleStack() {
 
                 var /*FreeEndTuple*/ freeEndTuple = freeEndTupleStack.pop();
@@ -565,10 +530,9 @@
                 var parentNode = freeEndTuple.node,
                     rootNodeLine = parentNode.rootNodeLine,
                     startLine = freeEndTuple.firstElementOfNodeContent;
-                        //freeEndContent;
-                // try to define charge of node
+
+                // try to define charge of root node
                 if(parentNode.isRoot) {
-                    //rootNodeLine and startLine
                     let /*Map.<Number, Array.<Number>>*/ connectionsMap = createConnectionsMap(rootNodeLine, startLine);
                     let charge = null;
                     rootNodeLine.forEach(function(item, index){
@@ -591,9 +555,9 @@
                         }
                     });
                     if(charge === null) {
-                        //nullChargeNodeList.push(parentNode);
+                        parentNode.nullChargeNodeList.push(parentNode);
                     }
-                    else {
+                    else if(parentNode.charge === null){
                         parentNode.setCharge(charge);
                     }
                 }
@@ -861,8 +825,8 @@
                             let v2 = getVector(orderedNext[minArray[0]], orderedNext[minArray[1]]);
                             sign = isPseudoScalarPositive(v1, v2);
                             if(node.charge === null) {
-                                node.setCharge(sign);
-                                getRootNode(node).nullChargeNodeList.forEach(function(item) {
+                                //node.setCharge(sign);
+                                getRootNode(node).nullChargeNodeList.forEach(function(item, index) {
                                     item.setCharge(sign);
                                 });
                                 getRootNode(node).nullChargeNodeList = [];
@@ -870,6 +834,7 @@
                             sign = node.charge == sign;
 
                         }
+                        // case 2 -> 2
                         else if(prevConnectedArrayOfPointKey.length == 2 && orderedNext.length == 2) {
                             let v1 = getVector(prevConnectedArrayOfPointKey[0], orderedNext[0]);
                             sign = v1.x == 0 || v1.y == 0;
@@ -1136,27 +1101,6 @@
             ctx.fillRect(lastX, lastY,1,1);
         }
 
-        function drawSimplifiedNode(ctx, color, /*SimplifiedNode*/ node) {
-            if (node.isRoot) return;
-
-            ctx.strokeStyle = color;
-            ctx.fillStyle = color;
-            ctx.lineWidth = 1;
-
-            ctx.beginPath();
-
-            let startKey = node.content[0];//node.mainPoint;
-            var lastX = getX(startKey), lastY = getY(startKey);
-            ctx.moveTo(lastX, lastY);
-
-            for (let index = 0; index < node.content.length; ++index) {
-                let vertexId = node.content[index];
-                ctx.lineTo(getX(vertexId), getY(vertexId));
-            }
-
-            ctx.stroke();
-        }
-
         createPointMap(imgData);
         createAllNodeTree();
         pointMap.size = 0;
@@ -1164,28 +1108,21 @@
         console.log("Total Root element after createPointTree(): " + rootNodeArr.length);
         console.log("Total End Nodes: " + endNodeArr.length + "   " + " " + allCreatedNodes.size);
 
+        Array.from(allCreatedNodes).forEach(function(node, nodeCounter) {
+            var color;
+            if (nodeCounter < Colors.length) color = Colors[nodeCounter];
+            else color = Colors[nodeCounter % Colors.length];
 
-        var curNode,
-            endNodeSetIterator = allCreatedNodes.values(),
-            colorIdx = 0;
-        while ((curNode = endNodeSetIterator.next().value) != undefined) {
-            let color;
-            //let simplifiedNode = new SimplifiedNode(curNode);
-            if (colorIdx < Colors.length) color = Colors[colorIdx];
-            else color = Colors[colorIdx % Colors.length];
-            //drawNode(gCtx, color, curNode);
-            //drawSimplifiedNode(gCtx, color, simplifiedNode);
-            ++colorIdx;
-        }
-        rootNodeLineArr.forEach(function(item) {
-            item.forEach(function(point) {
-                drawPoint(gCtx, point, "#000000")
-            });
-        });
-        startLineArr.forEach(function(item) {
-            item.forEach(function(point) {
-                drawPoint(gCtx, point, "#FF0000")
-            });
+            if(node.charge === true || node.charge ===null) {
+                for(let i = 0; i < node.rContent.length; ++i) {
+                    drawPoint(gCtx, node.rContent[i], color);
+                }
+            }
+            else if(node.charge === false) {
+                for(let i = 0; i < node.lContent.length; ++i) {
+                    drawPoint(gCtx, node.lContent[i], color);
+                }
+            }
         });
     }
 })(document);
